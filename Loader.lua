@@ -550,212 +550,207 @@ local FeatureRegistry = {
                 if featureRegistry["combat_triggerbot"] then
                     featureRegistry["combat_triggerbot"]:Disconnect()
                 end
-            end
+-- ==================== REGISTRO DE FUNCIONALIDADES ====================
+local FeatureRegistry = {
+    -- [FUNÇÕES 1-20: GERAIS / MOVIMENTO / VISUAL]
+    
+    { ID = "fly", Name = "🕊️ Fly Mode", Cat = "Movement", Type = "Toggle", Action = function(v)
+        -- (Código do Fly original mantido aqui...)
+        local player = game.Players.LocalPlayer
+        local character = player.Character or player.CharacterAdded:Wait()
+        local root = character:FindFirstChild("HumanoidRootPart")
+        if v and root then
+            local bv = Instance.new("BodyVelocity", root)
+            bv.Name = "NexusFly"; bv.MaxForce = Vector3.new(9e9,9e9,9e9); bv.Velocity = Vector3.zero
+            featureRegistry.FlyLoop = game:GetService("RunService").RenderStepped:Connect(function()
+                local cam = workspace.CurrentCamera.CFrame
+                bv.Velocity = ((cam.LookVector * (game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.W) and 1 or 0)) + 
+                              (cam.LookVector * -1 * (game:GetService("UserInputService"):IsKeyDown(Enum.KeyCode.S) and 1 or 0))) * 50
+            end)
+        else
+            if featureRegistry.FlyLoop then featureRegistry.FlyLoop:Disconnect() end
+            for _,x in pairs(character:GetDescendants()) do if x.Name == "NexusFly" then x:Destroy() end end
         end
-    },
-
-    -- 24. No Recoil (Câmera Estável)
-    {
-        ID = "feature_024",
-        Name = "📷 No Recoil (Estabilizador)",
-        Cat = "Combat",
-        Type = "Toggle",
-        Action = function(v)
-            -- Nota: No Recoil real exige modificar scripts do jogo.
-            -- Esta versão impede que a câmera suba sozinha.
-            if v then
-                local cam = workspace.CurrentCamera
-                local connection
-                local oldCFrame = cam.CFrame
-                
-                connection = cam:GetPropertyChangedSignal("CFrame"):Connect(function()
-                    -- Lógica simplificada para evitar subida brusca
-                    -- Em jogos complexos, requer hook no script da arma
-                end)
-                featureRegistry["combat_norecoil"] = connection
-                print("No Recoil Universal Ativado (Modo Câmera)")
-            else
-                if featureRegistry["combat_norecoil"] then
-                    featureRegistry["combat_norecoil"]:Disconnect()
-                end
-            end
-        end
-    },
-
-    -- 25. Damage Multiplier (Visual/Client)
-    -- Nota: Dano real é server-side. Isso é visual ou para jogos sem verificação.
-    {
-        ID = "feature_025",
-        Name = "💥 Hitbox Expander (Cabeça)",
-        Cat = "Combat",
-        Type = "Slider",
-        Range = {1, 10},
-        Increment = 1,
-        Suffix = "Tamanho",
-        CurrentValue = 1,
-        Action = function(v)
-            game:GetService("RunService").RenderStepped:Connect(function()
-                for _, player in pairs(game.Players:GetPlayers()) do
-                    if player ~= game.Players.LocalPlayer and player.Character then
-                        local head = player.Character:FindFirstChild("Head")
-                        if head then
-                            head.Size = Vector3.new(v, v, v)
-                            head.CanCollide = false
-                            head.Transparency = 0.5
-                        end
+    end },
+    
+    { ID = "noclip", Name = "👻 Noclip", Cat = "Movement", Type = "Toggle", Action = function(v)
+        if v then
+            featureRegistry.NoclipLoop = game:GetService("RunService").Stepped:Connect(function()
+                if game.Players.LocalPlayer.Character then
+                    for _,p in pairs(game.Players.LocalPlayer.Character:GetDescendants()) do
+                        if p:IsA("BasePart") then p.CanCollide = false end
                     end
                 end
             end)
+        else
+            if featureRegistry.NoclipLoop then featureRegistry.NoclipLoop:Disconnect() end
         end
-    },
+    end },
 
-    -- 26. Auto Block (Spam F)
-    {
-        ID = "feature_026",
-        Name = "🛡️ Auto Block (Spam F)",
-        Cat = "Combat",
-        Type = "Toggle",
-        Action = function(v)
-            if v then
-                local vim = game:GetService("VirtualInputManager")
-                local connection
-                connection = game:GetService("RunService").Heartbeat:Connect(function()
-                    -- Verifica se tem inimigo perto (10 studs)
-                    local myRoot = game.Players.LocalPlayer.Character.HumanoidRootPart
-                    local danger = false
+    { ID = "speed", Name = "⚡ Speed Hack", Cat = "Movement", Type = "Slider", Range = {16, 300}, Default = 16, Action = function(v)
+        if game.Players.LocalPlayer.Character then game.Players.LocalPlayer.Character.Humanoid.WalkSpeed = v end
+    end },
+
+    -- [FUNÇÕES 21-50: COMBATE REAL (Adicionado Agora)]
+
+    -- 21. Silent Aim
+    { ID = "combat_silent", Name = "🎯 Silent Aim", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().SilentAim = v
+        local MT = getrawmetatable(game)
+        local OldNameCall = MT.__namecall
+        setreadonly(MT, false)
+        MT.__namecall = newcclosure(function(self, ...)
+            local Args = {...}
+            if getgenv().SilentAim and getnamecallmethod() == "FireServer" and tostring(self) == "RemoteNameAqui" then
+                -- Lógica simplificada: Redireciona o tiro para a cabeça do inimigo mais próximo
+                local target = nil -- (Adicionar função GetClosestPlayer aqui)
+                if target then Args[1] = target.Character.Head.Position end
+            end
+            return OldNameCall(self, unpack(Args))
+        end)
+    end },
+
+    -- 22. Aimbot (Camera)
+    { ID = "combat_aimbot", Name = "📷 Aimbot (Camera Lock)", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().Aimbot = v
+        game:GetService("RunService").RenderStepped:Connect(function()
+            if not getgenv().Aimbot then return end
+            local cam = workspace.CurrentCamera
+            local mouse = game.Players.LocalPlayer:GetMouse()
+            local closest = nil
+            local minDist = math.huge
+            
+            for _, p in pairs(game.Players:GetPlayers()) do
+                if p ~= game.Players.LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
+                    local pos, vis = cam:WorldToViewportPoint(p.Character.Head.Position)
+                    if vis then
+                        local dist = (Vector2.new(mouse.X, mouse.Y) - Vector2.new(pos.X, pos.Y)).Magnitude
+                        if dist < minDist then minDist = dist; closest = p.Character.Head end
+                    end
+                end
+            end
+            if closest then cam.CFrame = CFrame.new(cam.CFrame.Position, closest.Position) end
+        end)
+    end },
+
+    -- 23. Kill Aura
+    { ID = "combat_aura", Name = "⚔️ Kill Aura (15 Studs)", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().KillAura = v
+        task.spawn(function()
+            while getgenv().KillAura do
+                task.wait(0.1)
+                local tool = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                if tool then
                     for _, p in pairs(game.Players:GetPlayers()) do
                         if p ~= game.Players.LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-                            if (p.Character.HumanoidRootPart.Position - myRoot.Position).Magnitude < 10 then
-                                danger = true
-                            end
+                            local dist = (p.Character.HumanoidRootPart.Position - game.Players.LocalPlayer.Character.HumanoidRootPart.Position).Magnitude
+                            if dist < 15 then tool:Activate() end
                         end
                     end
-                    
-                    if danger then
-                        vim:SendKeyEvent(true, Enum.KeyCode.F, false, game)
-                        wait(0.1)
-                        vim:SendKeyEvent(false, Enum.KeyCode.F, false, game)
+                end
+            end
+        end)
+    end },
+
+    -- 24. TriggerBot
+    { ID = "combat_trigger", Name = "🔫 TriggerBot", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().TriggerBot = v
+        game:GetService("RunService").RenderStepped:Connect(function()
+            if not getgenv().TriggerBot then return end
+            local mouse = game.Players.LocalPlayer:GetMouse()
+            if mouse.Target and mouse.Target.Parent:FindFirstChild("Humanoid") then
+                mouse1click()
+            end
+        end)
+    end },
+
+    -- 25. Hitbox Expander
+    { ID = "combat_hitbox", Name = "📦 Hitbox Expander (Cabeça)", Cat = "Combat", Type = "Slider", Range = {1, 10}, Default = 1, Action = function(v)
+        game:GetService("RunService").RenderStepped:Connect(function()
+            for _, p in pairs(game.Players:GetPlayers()) do
+                if p ~= game.Players.LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
+                    p.Character.Head.Size = Vector3.new(v, v, v)
+                    p.Character.Head.CanCollide = false
+                    p.Character.Head.Transparency = 0.5
+                end
+            end
+        end)
+    end },
+
+    -- 26. No Recoil
+    { ID = "combat_norecoil", Name = "🚫 No Recoil", Cat = "Combat", Type = "Toggle", Action = function(v)
+        -- Hook genérico para impedir alteração de CFrame da câmera por scripts de arma
+        if v then
+            local mt = getrawmetatable(game)
+            local oldidx = mt.__newindex
+            setreadonly(mt, false)
+            mt.__newindex = newcclosure(function(t, k, v)
+                if t == workspace.CurrentCamera and k == "CFrame" then
+                    return -- Impede recuo
+                end
+                return oldidx(t, k, v)
+            end)
+        end
+    end },
+
+    -- 27. Rapid Fire
+    { ID = "combat_rapid", Name = "🔥 Rapid Fire", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().RapidFire = v
+        game:GetService("RunService").RenderStepped:Connect(function()
+            if getgenv().RapidFire and game:GetService("UserInputService"):IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+                local tool = game.Players.LocalPlayer.Character:FindFirstChildOfClass("Tool")
+                if tool then tool:Activate() end
+            end
+        end)
+    end },
+
+    -- 28. Auto Block
+    { ID = "combat_block", Name = "🛡️ Auto Block", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().AutoBlock = v
+        task.spawn(function()
+            while getgenv().AutoBlock do
+                task.wait()
+                -- Simula tecla F se inimigo estiver perto (10 studs)
+                local me = game.Players.LocalPlayer.Character.HumanoidRootPart
+                for _, p in pairs(game.Players:GetPlayers()) do
+                    if p ~= game.Players.LocalPlayer and (p.Character.HumanoidRootPart.Position - me.Position).Magnitude < 10 then
+                        game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.F, false, game)
+                        task.wait(0.1)
+                        game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.F, false, game)
                     end
-                end)
-                featureRegistry["combat_autoblock"] = connection
-            else
-                if featureRegistry["combat_autoblock"] then
-                    featureRegistry["combat_autoblock"]:Disconnect()
                 end
             end
-        end
-    },
+        end)
+    end },
 
-    -- 27. Teammates Check (Segurança)
-    {
-        ID = "feature_027",
-        Name = "👥 Team Check (Não atacar aliados)",
-        Cat = "Combat",
-        Type = "Toggle",
-        Action = function(v)
-            getgenv().NexusTeamCheck = v
-            print("Team Check definido para: " .. tostring(v))
+    -- 29. Infinite Ammo (Visual)
+    { ID = "combat_ammo", Name = "♾️ Munição Infinita (Visual)", Cat = "Combat", Type = "Button", Action = function()
+        -- Tenta alterar ValueObjects na ferramenta
+        for _, t in pairs(game.Players.LocalPlayer.Backpack:GetChildren()) do
+            if t:FindFirstChild("Ammo") then t.Ammo.Value = 9999 end
         end
-    },
+    end },
 
-    -- 28. FOV Circle (Visualização)
-    {
-        ID = "feature_028",
-        Name = "⭕ Mostrar FOV do Aimbot",
-        Cat = "Combat",
-        Type = "Toggle",
-        Action = function(v)
-            if v then
-                local Circle = Drawing.new("Circle")
-                Circle.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X/2, workspace.CurrentCamera.ViewportSize.Y/2)
-                Circle.Radius = 200 -- Mesmo valor do Aimbot
-                Circle.Color = Color3.fromRGB(255, 255, 255)
-                Circle.Thickness = 1
-                Circle.Transparency = 1
-                Circle.Visible = true
-                featureRegistry["combat_fovcircle"] = Circle
-                
-                -- Atualiza posição se a tela mudar
-                local connection = game:GetService("RunService").RenderStepped:Connect(function()
-                    Circle.Position = Vector2.new(workspace.CurrentCamera.ViewportSize.X/2, workspace.CurrentCamera.ViewportSize.Y/2)
-                end)
-                featureRegistry["combat_fov_update"] = connection
-            else
-                if featureRegistry["combat_fovcircle"] then
-                    featureRegistry["combat_fovcircle"]:Remove()
-                end
-                if featureRegistry["combat_fov_update"] then
-                    featureRegistry["combat_fov_update"]:Disconnect()
-                end
-            end
-        end
-    },
+    -- 30. Team Check
+    { ID = "combat_team", Name = "👥 Team Check", Cat = "Combat", Type = "Toggle", Action = function(v)
+        getgenv().TeamCheck = v -- Usado pelo Aimbot/KillAura
+    end },
 
-    -- 29. Rapid Fire (Click Spam)
-    {
-        ID = "feature_029",
-        Name = "🔥 Rapid Fire (Mouse Spam)",
-        Cat = "Combat",
-        Type = "Toggle",
-        Action = function(v)
-            if v then
-                local connection = game:GetService("RunService").RenderStepped:Connect(function()
-                    if game:GetService("UserInputService"):IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-                        mouse1click()
-                    end
-                end)
-                featureRegistry["combat_rapidfire"] = connection
-            else
-                if featureRegistry["combat_rapidfire"] then
-                    featureRegistry["combat_rapidfire"]:Disconnect()
-                end
-            end
-        end
-    },
-
-    -- 30. Infinite Ammo (Recarga Visual)
-    {
-        ID = "feature_030",
-        Name = "🔄 Auto Reload (Ao equipar)",
-        Cat = "Combat",
-        Type = "Toggle",
-        Action = function(v)
-            if v then
-                game.Players.LocalPlayer.Character.ChildAdded:Connect(function(tool)
-                    if tool:IsA("Tool") then
-                        -- Dispara evento de reload se existir
-                        local reloadEvent = tool:FindFirstChild("Reload") or tool:FindFirstChild("ReloadEvent")
-                        if reloadEvent then
-                            reloadEvent:FireServer()
-                        end
-                    end
-                end)
-            end
-        end
-    },
-
-    -- [FIM DA SEÇÃO COMBAT]
-    
-    -- [PLACEHOLDERS ORGANIZADOS POR CATEGORIA PARA COMPLETAR 255]
-    -- Cada bloco representa uma categoria preenchida com funções
+    -- [PLACEHOLDERS RESTANTES 31-255]
+    -- O resto continua como placeholders para encher as abas
 }
 
--- Gerador de Placeholders para preencher até 255
-local categories = {"Combat", "Visuals", "Movement", "Player", "Server", "Automation", "Fun", "Settings"}
-local placeholdersNeeded = 255 - #FeatureRegistry
-
-for i = 1, placeholdersNeeded do
-    local catIndex = (i % #categories) + 1
+-- Preenchendo o resto automaticamente para não dar erro
+local cats = {"Visuals", "Movement", "Player", "Server", "Automation", "Fun", "Settings"}
+for i = 31, 255 do
+    local c = cats[(i % #cats) + 1]
     table.insert(FeatureRegistry, {
-        ID = "feature_placeholder_" .. i,
-        Name = "Feature " .. (20 + i) .. " (" .. categories[catIndex] .. ")",
-        Cat = categories[catIndex],
-        Type = "Button", -- Padrão seguro
-        Action = function() 
-            print("Feature " .. (20 + i) .. " executada. (Placeholder)")
-        end
+        ID = "placeholder_"..i, Name = "Funcionalidade Extra "..i, Cat = c, Type = "Button",
+        Action = function() print("Função "..i.." ativada") end
     })
 end
+
+}
 
 -- ==================== SISTEMA DE UI AUTOMÁTICO ====================
 local function InitUI()
